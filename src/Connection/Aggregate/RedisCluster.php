@@ -46,13 +46,49 @@ use Predis\Response\ErrorInterface as ErrorResponseInterface;
  */
 class RedisCluster implements ClusterInterface, \IteratorAggregate, \Countable
 {
+    /**
+     * @var bool
+     */
     private $useClusterSlots = true;
+
+    /**
+     * @var array
+     */
     private $pool = array();
+
+    /**
+     * @var array
+     */
     private $slots = array();
+
+    /**
+     * @var array
+     */
     private $slotsMap;
+
+    /**
+     * @var StrategyInterface
+     */
     private $strategy;
+
+    /**
+     * @var FactoryInterface
+     */
     private $connections;
+
+    /**
+     * Max number of retries of a command upon server failure.
+     *
+     * @var int
+     */
     private $retryLimit = 5;
+
+    /**
+     * Time to wait in milliseconds before retrying the command.
+     *
+     * @var int
+     */
+    protected $retryWait = 1000;
 
     /**
      * @param FactoryInterface  $connections Optional connection factory.
@@ -78,6 +114,16 @@ class RedisCluster implements ClusterInterface, \IteratorAggregate, \Countable
     public function setRetryLimit($retry)
     {
         $this->retryLimit = (int) $retry;
+    }
+
+    /**
+     * Sets the time to wait in milliseconds before retrying the command.
+     *
+     * @param float $milliseconds Time to wait before the next attempt.
+     */
+    public function setRetryWait($milliseconds)
+    {
+        $this->retryWait = (float) $milliseconds;
     }
 
     /**
@@ -543,7 +589,7 @@ class RedisCluster implements ClusterInterface, \IteratorAggregate, \Countable
      */
     private function retryCommandOnFailure(CommandInterface $command, $method)
     {
-        $failure = false;
+        $retries = 0;
 
         RETRY_COMMAND: {
             try {
@@ -554,14 +600,15 @@ class RedisCluster implements ClusterInterface, \IteratorAggregate, \Countable
 
                 $this->remove($connection);
 
-                if ($failure) {
+                if ($retries == $this->retryLimit) {
                     throw $exception;
                 } elseif ($this->useClusterSlots) {
                     $this->askSlotsMap();
                 }
 
-                $failure = true;
+                usleep($this->retryWait * 1000);
 
+                ++$retries;
                 goto RETRY_COMMAND;
             }
         }
